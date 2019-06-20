@@ -1,54 +1,46 @@
 #
-# Continuous Integration (CI)
-# This pipeline builds and validate the app in all supported configurations. If the build was
-# queued to validate a pull request, we build and test only x64.
+# Localization
+# This pipeline uploads English strings files to the localization service, downloads any translated
+# files which are available, and checks them in to git. This pipeline relies on Microsoft-internal
+# resources to run.
 #
 
-trigger:
-- master
-- servicing/*
-pr:
-- master
-- servicing/*
+# Expects a variable called LocServiceKey to contain the OAuth client secret for Touchdown.
 
-name: 0.$(Date:yyMM).$(DayOfMonth)$(Rev:rr).0
+trigger: none
+pr: none
+
+name: $(BuildDefinitionName)_$(date:yyMM).$(date:dd)$(rev:rrr)
 
 jobs:
-- template: ./templates/build-app-public.yaml
-  parameters:
-    platform: x64
+- job: Localize
+  pool:
+    vmImage: vs2017-win2016
+  variables:
+    skipComponentGovernanceDetection: true
+  steps:
 
-- template: ./templates/build-app-public.yaml
-  parameters:
-    platform: x86
-    condition: not(eq(variables['Build.Reason'], 'PullRequest'))
+  - task: MicrosoftTDBuild.tdbuild-task.tdbuild-task.TouchdownBuildTask@1
+    displayName: Send resources to Touchdown Build
+    inputs:
+      teamId: 86
+      authId: d3dd8113-65b3-4526-bdca-a00a7d1c37ba
+      authKey: $(LocServiceKey)
+      isPreview: false
+      relativePathRoot: src/Calculator/Resources/en-US/
+      resourceFilePath: '*.resw'
+      outputDirectoryRoot: src/Calculator/Resources/
 
-- template: ./templates/build-app-public.yaml
-  parameters:
-    platform: ARM
-    condition: not(eq(variables['Build.Reason'], 'PullRequest'))
-
-- template: ./templates/build-app-public.yaml
-  parameters:
-    platform: ARM64
-    condition: not(eq(variables['Build.Reason'], 'PullRequest'))
-
-- template: ./templates/run-ui-tests.yaml
-  parameters:
-    platform: x64
-
-- template: ./templates/run-unit-tests.yaml
-  parameters:
-    platform: x64
-    reimageServiceConnection: essential-experiences-interactive-reimage
-    reimageSubscriptionId: a8f5eb47-e59c-44b4-8e42-e70811a047b5
-    reimageResourceGroup: EETestPublic
-
-- template: ./templates/run-unit-tests.yaml
-  parameters:
-    platform: x86
-    reimageServiceConnection: essential-experiences-interactive-reimage
-    reimageSubscriptionId: a8f5eb47-e59c-44b4-8e42-e70811a047b5
-    reimageResourceGroup: EETestPublic
-
-- template: ./templates/package-appxbundle.yaml
+  - script: |
+      cd $(Build.SourcesDirectory)
+      git add -A
+      git diff --cached --exit-code
+      echo ##vso[task.setvariable variable=hasChanges]%errorlevel%
+      git diff --cached > $(Build.ArtifactStagingDirectory)\LocalizedStrings.patch
+    displayName: Check for changes and create patch file
+  - task: PublishPipelineArtifact@0
+    displayName: Publish patch file as artifact
+    condition: eq(variables['hasChanges'], '1')
+    inputs:
+      artifactName: Patch
+      targetPath: $(Build.ArtifactStagingDirectory)
