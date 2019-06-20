@@ -4,7 +4,7 @@
 # Store and the Windows image. This pipeline relies on Microsoft-internal resources to run.
 #
 
-trigger: none
+trigger: master
 pr: none
 
 variables:
